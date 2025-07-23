@@ -2,60 +2,60 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 
-st.title("Explorateur ESS Alsace – Tableau & Diagramme croisés")
+# Configuration de la page
+st.set_page_config(page_title="ESS Alsace – Explorateur", layout="wide")
+st.title("🔍 Explorateur des organisations ESS en Alsace")
 
-# === Chargement du fichier ===
-st.sidebar.header("Source des données")
-
-# Option 1 : uploader un fichier
-uploaded_file = st.sidebar.file_uploader("Uploader un fichier Excel (.xlsx)", type=["xlsx"])
-
-# Option 2 : fichier par défaut (sur GitHub ou local)
-use_default = st.sidebar.checkbox("Utiliser le fichier de démonstration par défaut", value=True)
+# === Chargement des données depuis GitHub ===
 
 @st.cache_data
-def load_default_data():
-    url = "https://raw.githubusercontent.com/ton-utilisateur/ton-repo/main/data/ess_alsace.xlsx"
-    return pd.read_excel(url)
+def load_data():
+    url = "https://raw.githubusercontent.com/b33n-tech/grand-est-ess/main/base-alsace.xlsx"
+    return pd.read_excel(url, engine='openpyxl')
 
-# Lecture des données
-if uploaded_file:
-    df = pd.read_excel(uploaded_file)
-    st.success("Fichier importé avec succès.")
-elif use_default:
-    df = load_default_data()
-    st.info("Fichier de démonstration chargé depuis GitHub.")
-else:
-    st.warning("Veuillez uploader un fichier ou utiliser l'exemple.")
+# Chargement du fichier
+try:
+    df = load_data()
+    st.success("✅ Données chargées depuis GitHub : `base-alsace.xlsx`")
+except Exception as e:
+    st.error("❌ Erreur de chargement du fichier Excel.")
     st.stop()
 
 # === Aperçu des données ===
-st.subheader("Aperçu du fichier importé")
+st.subheader("📄 Aperçu des données")
 st.dataframe(df.head())
 
 # === Configuration du tableau croisé ===
-st.subheader("Tableau croisé dynamique")
-rows = st.selectbox("Choisir les lignes :", df.columns, index=1)
-columns = st.selectbox("Choisir les colonnes :", df.columns, index=3)
-values = st.selectbox("Valeur à calculer :", ['N°SIREN'], index=0)
-aggfunc = st.selectbox("Fonction d’agrégation :", ['count', 'nunique'])
+st.subheader("📊 Tableau croisé dynamique")
 
-# === Création du tableau croisé ===
+col1, col2, col3 = st.columns(3)
+with col1:
+    rows = st.selectbox("🏷️ Variable en ligne :", df.columns, index=1)
+with col2:
+    columns = st.selectbox("📁 Variable en colonne :", df.columns, index=3)
+with col3:
+    values = st.selectbox("🔢 Valeur à mesurer :", ['N°SIREN'], index=0)
+
+aggfunc = st.radio("⚙️ Méthode d'agrégation :", ['count', 'nunique'], horizontal=True)
+
+# === Création du pivot ===
 try:
     if aggfunc == 'count':
         pivot_table = pd.pivot_table(df, index=rows, columns=columns, values=values, aggfunc='count', fill_value=0)
     else:
         pivot_table = pd.pivot_table(df, index=rows, columns=columns, values=values, aggfunc='nunique', fill_value=0)
+
+    st.subheader("📑 Résultat du tableau croisé")
     st.dataframe(pivot_table)
 except Exception as e:
-    st.error(f"Erreur dans la création du tableau croisé : {e}")
+    st.error(f"Erreur lors de la génération du tableau croisé : {e}")
     st.stop()
 
-# === Diagramme croisé ===
-st.subheader("Visualisation des données")
+# === Visualisation ===
+st.subheader("📈 Diagramme croisé interactif")
 
 pivot_reset = pivot_table.reset_index().melt(id_vars=[rows], var_name=columns, value_name='Valeur')
-chart_type = st.radio("Choisir un type de graphique", ["Barres", "Camembert (lignes seulement)"])
+chart_type = st.radio("Type de graphique", ["Barres", "Camembert (lignes uniquement)"], horizontal=True)
 
 if chart_type == "Barres":
     chart = alt.Chart(pivot_reset).mark_bar().encode(
@@ -63,12 +63,13 @@ if chart_type == "Barres":
         y='Valeur:Q',
         color=rows + ':N',
         tooltip=[rows, columns, 'Valeur']
-    ).properties(width=700, height=400)
+    ).properties(width=800, height=400)
+
     st.altair_chart(chart)
 
-elif chart_type == "Camembert (lignes seulement)":
-    if columns != rows:
-        st.warning("Le camembert est affichable uniquement si la colonne = ligne.")
+elif chart_type == "Camembert (lignes uniquement)":
+    if rows != columns:
+        st.warning("⚠️ Le camembert nécessite que ligne = colonne.")
     else:
         pie_data = df[rows].value_counts().reset_index()
         pie_data.columns = [rows, 'Valeur']
@@ -77,4 +78,5 @@ elif chart_type == "Camembert (lignes seulement)":
             color=rows,
             tooltip=[rows, 'Valeur']
         ).properties(width=500, height=500)
+
         st.altair_chart(chart)
