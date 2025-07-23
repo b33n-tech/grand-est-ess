@@ -2,80 +2,93 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 
-# Configuration générale
 st.set_page_config(page_title="ESS Alsace – Explorateur", layout="wide")
-st.title("🔍 Explorateur des organisations ESS en Alsace")
-
-# === Chargement local du fichier ===
+st.title("🔍 Explorateur ESS Alsace avec multi-dimensions")
 
 @st.cache_data
 def load_data():
-    # Fichier local dans le dépôt
-    return pd.read_excel("base-alsace.xlsx", engine='openpyxl')
+    url = "https://raw.githubusercontent.com/b33n-tech/grand-est-ess/main/base-alsace.xlsx"
+    return pd.read_excel(url, engine='openpyxl')
 
-try:
-    df = load_data()
-    st.success("✅ Données chargées : `base-alsace.xlsx`")
-except Exception as e:
-    st.error(f"❌ Erreur de chargement du fichier Excel : {e}")
-    st.stop()
+df = load_data()
 
-# === Aperçu des données ===
 st.subheader("📄 Aperçu des données")
 st.dataframe(df.head())
 
-# === Configuration du tableau croisé ===
-st.subheader("📊 Tableau croisé dynamique")
+st.subheader("📊 Configuration tableau croisé dynamique")
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    rows = st.selectbox("🏷️ Variable en ligne :", df.columns, index=1)
-with col2:
-    columns = st.selectbox("📁 Variable en colonne :", df.columns, index=3)
-with col3:
-    values = st.selectbox("🔢 Valeur à mesurer :", ['N°SIREN'], index=0)
+# Sélection multiple de lignes (index)
+rows = st.multiselect("Variables en ligne (au moins 1)", options=df.columns, default=[df.columns[1]])
 
-aggfunc = st.radio("⚙️ Méthode d'agrégation :", ['count', 'nunique'], horizontal=True)
+# Sélection multiple de colonnes (colonnes pivot)
+columns = st.multiselect("Variables en colonne (optionnel)", options=df.columns, default=[df.columns[3]])
 
-# === Création du tableau croisé ===
+values = st.selectbox("Valeur à agréger", options=['N°SIREN'], index=0)
+aggfunc = st.radio("Fonction d’agrégation", ['count', 'nunique'], horizontal=True)
+
+if len(rows) == 0:
+    st.warning("Sélectionnez au moins une variable en ligne.")
+    st.stop()
+
 try:
-    if aggfunc == 'count':
-        pivot_table = pd.pivot_table(df, index=rows, columns=columns, values=values, aggfunc='count', fill_value=0)
-    else:
-        pivot_table = pd.pivot_table(df, index=rows, columns=columns, values=values, aggfunc='nunique', fill_value=0)
-
+    pivot_table = pd.pivot_table(
+        df,
+        index=rows,
+        columns=columns if len(columns) > 0 else None,
+        values=values,
+        aggfunc=aggfunc,
+        fill_value=0,
+    )
     st.subheader("📑 Résultat du tableau croisé")
     st.dataframe(pivot_table)
 except Exception as e:
-    st.error(f"❌ Erreur lors de la génération du tableau croisé : {e}")
+    st.error(f"Erreur lors de la création du tableau croisé : {e}")
     st.stop()
 
-# === Visualisation des données ===
-st.subheader("📈 Diagramme croisé interactif")
+# === Visualisation simple avec Altair (sur les 2 premières dimensions seulement) ===
+st.subheader("📈 Visualisation")
 
-pivot_reset = pivot_table.reset_index().melt(id_vars=[rows], var_name=columns, value_name='Valeur')
-chart_type = st.radio("Type de graphique", ["Barres", "Camembert (lignes uniquement)"], horizontal=True)
+# Réduction du pivot pour Altair : reset_index + melt
+pivot_reset = pivot_table.reset_index()
+
+# Si colonnes sélectionnées : pivot.columns est un MultiIndex → aplatissement
+if columns:
+    pivot_reset = pivot_reset.melt(id_vars=rows, var_name="_col", value_name='Valeur')
+    x_axis = "_col"
+else:
+    # Pas de colonnes : transformer en format long
+    pivot_reset = pivot_reset.melt(id_vars=rows, var_name='variable', value_name='Valeur')
+    x_axis = rows[-1]  # dernière variable en ligne comme x
+
+if len(rows) > 1:
+    color = rows[0]
+else:
+    color = None
+
+chart_type = st.radio("Type de graphique", ["Barres", "Camembert (si 1 variable)"], horizontal=True)
 
 if chart_type == "Barres":
-    chart = alt.Chart(pivot_reset).mark_bar().encode(
-        x=alt.X(columns + ':N', title=columns),
-        y='Valeur:Q',
-        color=rows + ':N',
-        tooltip=[rows, columns, 'Valeur']
-    ).properties(width=800, height=400)
+    enc = {
+        'x': alt.X(x_axis + ':N', title=x_axis),
+        'y': 'Valeur:Q',
+        'tooltip': [x_axis, 'Valeur']
+    }
+    if color:
+        enc['color'] = alt.Color(color + ':N')
+        enc['tooltip'].append(color)
 
+    chart = alt.Chart(pivot_reset).mark_bar().encode(**enc).properties(width=800, height=400)
     st.altair_chart(chart)
 
-elif chart_type == "Camembert (lignes uniquement)":
-    if rows != columns:
-        st.warning("⚠️ Le camembert nécessite que ligne = colonne.")
-    else:
-        pie_data = df[rows].value_counts().reset_index()
-        pie_data.columns = [rows, 'Valeur']
+elif chart_type == "Camembert (si 1 variable)":
+    if len(rows) == 1 and not columns:
+        pie_data = df[rows[0]].value_counts().reset_index()
+        pie_data.columns = [rows[0], 'Valeur']
         chart = alt.Chart(pie_data).mark_arc().encode(
             theta='Valeur',
-            color=rows,
-            tooltip=[rows, 'Valeur']
+            color=rows[0],
+            tooltip=[rows[0], 'Valeur']
         ).properties(width=500, height=500)
-
         st.altair_chart(chart)
+    else:
+        st.warning("Le camembert fonctionne uniquement avec une seule variable en ligne et aucune en colonne.")
