@@ -2,23 +2,22 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 
-# Configuration de la page
+# Configuration générale
 st.set_page_config(page_title="ESS Alsace – Explorateur", layout="wide")
 st.title("🔍 Explorateur des organisations ESS en Alsace")
 
-# === Chargement des données depuis GitHub ===
+# === Chargement local du fichier ===
 
 @st.cache_data
 def load_data():
-    url = "https://raw.githubusercontent.com/b33n-tech/grand-est-ess/main/base-alsace.xlsx"
-    return pd.read_excel(url, engine='openpyxl')
+    # Fichier local dans le dépôt
+    return pd.read_excel("base-alsace.xlsx", engine='openpyxl')
 
-# Chargement du fichier
 try:
     df = load_data()
-    st.success("✅ Données chargées depuis GitHub : `base-alsace.xlsx`")
+    st.success("✅ Données chargées : `base-alsace.xlsx`")
 except Exception as e:
-    st.error("❌ Erreur de chargement du fichier Excel.")
+    st.error(f"❌ Erreur de chargement du fichier Excel : {e}")
     st.stop()
 
 # === Aperçu des données ===
@@ -38,7 +37,7 @@ with col3:
 
 aggfunc = st.radio("⚙️ Méthode d'agrégation :", ['count', 'nunique'], horizontal=True)
 
-# === Création du pivot ===
+# === Création du tableau croisé ===
 try:
     if aggfunc == 'count':
         pivot_table = pd.pivot_table(df, index=rows, columns=columns, values=values, aggfunc='count', fill_value=0)
@@ -48,10 +47,10 @@ try:
     st.subheader("📑 Résultat du tableau croisé")
     st.dataframe(pivot_table)
 except Exception as e:
-    st.error(f"Erreur lors de la génération du tableau croisé : {e}")
+    st.error(f"❌ Erreur lors de la génération du tableau croisé : {e}")
     st.stop()
 
-# === Visualisation ===
+# === Visualisation des données ===
 st.subheader("📈 Diagramme croisé interactif")
 
 pivot_reset = pivot_table.reset_index().melt(id_vars=[rows], var_name=columns, value_name='Valeur')
